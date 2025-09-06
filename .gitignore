@@ -446,3 +446,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Ignore SPIR-V files
+*.spv
