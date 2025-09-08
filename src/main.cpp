@@ -29,7 +29,10 @@ const std::vector<const char*> validationLayers =
 
 const std::vector<const char*> deviceExtensions =
 {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+	#ifdef __MACH__
+	"VK_KHR_portability_subset"
+	#endif
 };
 
 std::vector<VkDynamicState> dynamicStates =
@@ -163,8 +166,8 @@ private:
 
 	void createGraphicsPipeline()
 	{
-		auto vertShaderCode = readFile("../../../shader/vertex.spv");
-		auto fragShaderCode = readFile("../../../shader/fragment.spv");
+		auto vertShaderCode = readFile("shader/vertex.spv");
+		auto fragShaderCode = readFile("shader/fragment.spv");
 
 		VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
 		VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
@@ -640,6 +643,11 @@ private:
 		createInfo.pApplicationInfo = &appInfo;
 
 		auto extensions = getRequiredExtensions();
+#ifdef __MACH__
+		extensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+		extensions.emplace_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+		createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 		createInfo.ppEnabledExtensionNames = extensions.data();
 
