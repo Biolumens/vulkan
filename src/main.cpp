@@ -22,6 +22,8 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
 const std::vector<const char*> validationLayers =
 {
 	"VK_LAYER_KHRONOS_validation"
@@ -150,11 +152,45 @@ private:
 	std::vector<VkFramebuffer> m_swapChainFramebuffers;
 
 	VkCommandPool m_commandPool;
-	VkCommandBuffer m_commandBuffer;
+	std::vector<VkCommandBuffer> m_commandBuffers;
 
-	VkSemaphore m_imageAvailableSemaphore;
-	VkSemaphore m_renderFinishedSemaphore;
-	VkFence m_inFlightFence;
+	std::vector<VkSemaphore> m_imageAvailableSemaphores;
+	std::vector<VkSemaphore> m_renderFinishedSemaphores;
+	std::vector<VkFence> m_inFlightFences;
+
+	uint32_t m_currentFrame = 0;
+
+	bool m_framebufferResized = false;
+
+	void cleanupSwapChain()
+	{
+		for (auto framebuffer : m_swapChainFramebuffers)
+		{
+			vkDestroyFramebuffer(m_device, framebuffer, nullptr);
+		}
+
+		for (auto imageView : m_swapChainImageViews)
+		{
+			vkDestroyImageView(m_device, imageView, nullptr);
+		}
+
+		vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
+	}
+	void recreateSwapChain()
+	{
+		int width = 0, height = 0;
+		glfwGetFramebufferSize(m_Window, &width, &height);
+		while (width == 0 || height == 0)
+		{
+			glfwGetFramebufferSize(m_Window, &width, &height);
+			glfwWaitEvents();
+		}
+		vkDeviceWaitIdle(m_device);
+
+		createSwapChain();
+		createImageViews();
+		createFramebuffers();
+	}
 
 	void initWindow()
 	{
@@ -162,7 +198,15 @@ private:
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 		glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 		m_Window = glfwCreateWindow(WIDTH, HEIGHT, "Jonny Cube", nullptr, nullptr);
+		glfwSetWindowUserPointer(m_Window, this);
+		glfwSetFramebufferSizeCallback(m_Window, framebufferResizeCallback);
 
+	}
+
+	static void framebufferResizeCallback(GLFWwindow* window, int width, int height)
+	{
+		auto app = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+		app->m_framebufferResized = true;
 	}
 
 	void initVulkan()
@@ -184,18 +228,24 @@ private:
 
 	void createSyncObjects()
 	{
+		m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		m_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+		m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkSemaphoreCreateInfo semaphoreInfo{};
 		semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
 		VkFenceCreateInfo fenceInfo{};
 		fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-		if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphore) != VK_SUCCESS ||
-			vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphore) != VK_SUCCESS ||
-			vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFence) != VK_SUCCESS)
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) 
 		{
-			throw std::runtime_error("[ERROR]: Failed to create semaphores!");
+			if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
+				vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
+				vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("[ERROR]: Failed to create semaphores!");
+			}
 		}
 	}
 
@@ -206,7 +256,7 @@ private:
 		beginInfo.flags = 0;
 		beginInfo.pInheritanceInfo = nullptr;
 
-		if (vkBeginCommandBuffer(m_commandBuffer, &beginInfo) != VK_SUCCESS)
+		if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
 		{
 			throw std::runtime_error("[ERROR]: Failed to begin recording command buffer!");
 		}
@@ -224,24 +274,25 @@ private:
 
 		// WE CAN DRAW NOW LETS FUCKING GOOOOOOOOOOOOOOOOOOOOO
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
-		VkViewport viewport{};
-		viewport.x = 0.0f;
-		viewport.y = 0.0f;
-		viewport.width = static_cast<float>(m_swapChainExtent.width);
-		viewport.height = static_cast<float>(m_swapChainExtent.height);
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
-		VkRect2D scissor{};
-		scissor.offset = { 0, 0 };
-		scissor.extent = m_swapChainExtent;
-		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+			VkViewport viewport{};
+			viewport.x = 0.0f;
+			viewport.y = 0.0f;
+			viewport.width = static_cast<float>(m_swapChainExtent.width);
+			viewport.height = static_cast<float>(m_swapChainExtent.height);
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+			vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 
-		// WE FINALLY DRAWINGGGGGGGGG
-		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+			VkRect2D scissor{};
+			scissor.offset = { 0, 0 };
+			scissor.extent = m_swapChainExtent;
+			vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+			// WE FINALLY DRAWINGGGGGGGGG
+			vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
 		vkCmdEndRenderPass(commandBuffer);
 
@@ -254,13 +305,15 @@ private:
 
 	void createCommandBuffer()
 	{
+		m_commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
 		VkCommandBufferAllocateInfo allocInfo{};
 		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		allocInfo.commandPool = m_commandPool;
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		allocInfo.commandBufferCount = 1;
+		allocInfo.commandBufferCount = (uint32_t) m_commandBuffers.size();
 
-		if (vkAllocateCommandBuffers(m_device, &allocInfo, &m_commandBuffer) != VK_SUCCESS)
+		if (vkAllocateCommandBuffers(m_device, &allocInfo, m_commandBuffers.data()) != VK_SUCCESS)
 		{
 			throw std::runtime_error("[ERROR]: Failed to allocate command buffers!");
 		}
@@ -1001,32 +1054,43 @@ private:
 
 	void drawFrame()
 	{
-		vkWaitForFences(m_device, 1, &m_inFlightFence, VK_TRUE, UINT64_MAX);
-		vkResetFences(m_device, 1, &m_inFlightFence);
+		vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
 
 		uint32_t imageIndex;
-		vkAcquireNextImageKHR(m_device, m_swapChain, UINT64_MAX, m_imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
-		vkResetCommandBuffer(m_commandBuffer, 0);
+		VkResult result = vkAcquireNextImageKHR(m_device, m_swapChain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &imageIndex);
 
+		if (result == VK_ERROR_OUT_OF_DATE_KHR)
+		{
+			recreateSwapChain();
+			return;
+		}
+		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+		{
+			throw std::runtime_error("[ERROR]: Failed to acquire swap chain image!");
+		}
+
+		vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]);
 		// DRAW OUR SHIT
-		recordCommandBuffer(m_commandBuffer, imageIndex);
+		vkResetCommandBuffer(m_commandBuffers[m_currentFrame], 0);
+		recordCommandBuffer(m_commandBuffers[m_currentFrame], imageIndex);
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-		VkSemaphore waitSemaphores[] = { m_imageAvailableSemaphore };
+		VkSemaphore waitSemaphores[] = { m_imageAvailableSemaphores[m_currentFrame]};
 		VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 		submitInfo.waitSemaphoreCount = 1;
 		submitInfo.pWaitSemaphores = waitSemaphores;
 		submitInfo.pWaitDstStageMask = waitStages;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &m_commandBuffer;
 
-		VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphore };
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &m_commandBuffers[m_currentFrame];
+
+		VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_currentFrame]};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
-		if (vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_inFlightFence) != VK_SUCCESS)
+		if (vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_inFlightFences[m_currentFrame]) != VK_SUCCESS)
 		{
 			throw std::runtime_error("[ERROR]: Failed to submit draw command buffer!");
 		}
@@ -1043,22 +1107,42 @@ private:
 		presentInfo.pResults = nullptr;
 
 		// GOD I HOPE IT WORKS
-		vkQueuePresentKHR(m_presentQueue, &presentInfo);
+		result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
+
+		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_framebufferResized)
+		{
+			m_framebufferResized = false;
+			recreateSwapChain();
+		}
+		else if (result != VK_SUCCESS)
+		{
+			throw std::runtime_error("[ERROR]: Failed to present swap chain image!");
+		}
+
+		m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
 	void cleanup()
 	{
-		vkDestroySemaphore(m_device, m_imageAvailableSemaphore, nullptr);
-		vkDestroySemaphore(m_device, m_renderFinishedSemaphore, nullptr);
-		vkDestroyFence(m_device, m_inFlightFence, nullptr);
-		vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+		cleanupSwapChain();
+
+		vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
+		vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
+
+		vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+		{
+			vkDestroySemaphore(m_device, m_imageAvailableSemaphores[i], nullptr);
+			vkDestroySemaphore(m_device, m_renderFinishedSemaphores[i], nullptr);
+			vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
+		}
+
 		for (auto framebuffer : m_swapChainFramebuffers)
 		{
 			vkDestroyFramebuffer(m_device, framebuffer, nullptr);
 		}
-		vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
-		vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-		vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+		vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+
 		vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
 
 		for (auto imageView : m_swapChainImageViews)
