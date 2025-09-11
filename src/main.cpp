@@ -174,6 +174,11 @@ private:
 			vkDestroyImageView(m_device, imageView, nullptr);
 		}
 
+		for (VkSemaphore semaphore : m_renderFinishedSemaphores)
+		{
+			vkDestroySemaphore(m_device, semaphore, nullptr);
+		}
+
 		vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
 	}
 	void recreateSwapChain()
@@ -229,7 +234,6 @@ private:
 	void createSyncObjects()
 	{
 		m_imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-		m_renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
 		m_inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
 		VkSemaphoreCreateInfo semaphoreInfo{};
@@ -241,7 +245,6 @@ private:
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) 
 		{
 			if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
-				vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
 				vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS)
 			{
 				throw std::runtime_error("[ERROR]: Failed to create semaphores!");
@@ -588,6 +591,9 @@ private:
 			{
 				throw std::runtime_error("[ERROR]: Failed to create image views!");
 			}
+
+			VkSemaphoreCreateInfo semaphore_ci{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+			vkCreateSemaphore(m_device, &semaphore_ci, nullptr, &m_renderFinishedSemaphores[i]);
 		}
 	}
 	void createSwapChain()
@@ -648,6 +654,7 @@ private:
 		m_swapChainImages.resize(imageCount);
 		vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, m_swapChainImages.data());
 
+		m_renderFinishedSemaphores.resize(imageCount);
 		m_swapChainImageFormat = surfaceFormat.format;
 		m_swapChainExtent = extent;
 
@@ -1086,7 +1093,7 @@ private:
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &m_commandBuffers[m_currentFrame];
 
-		VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[m_currentFrame]};
+		VkSemaphore signalSemaphores[] = { m_renderFinishedSemaphores[imageIndex]};
 		submitInfo.signalSemaphoreCount = 1;
 		submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -1105,9 +1112,9 @@ private:
 		presentInfo.pSwapchains = swapChains;
 		presentInfo.pImageIndices = &imageIndex;
 		presentInfo.pResults = nullptr;
-
 		// GOD I HOPE IT WORKS
 		result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
+
 
 		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_framebufferResized)
 		{
@@ -1133,22 +1140,10 @@ private:
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			vkDestroySemaphore(m_device, m_imageAvailableSemaphores[i], nullptr);
-			vkDestroySemaphore(m_device, m_renderFinishedSemaphores[i], nullptr);
 			vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
 		}
-
-		for (auto framebuffer : m_swapChainFramebuffers)
-		{
-			vkDestroyFramebuffer(m_device, framebuffer, nullptr);
-		}
+		
 		vkDestroyCommandPool(m_device, m_commandPool, nullptr);
-
-		vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
-
-		for (auto imageView : m_swapChainImageViews)
-		{
-			vkDestroyImageView(m_device, imageView, nullptr);
-		}
 
 		vkDestroyDevice(m_device, nullptr);
 
