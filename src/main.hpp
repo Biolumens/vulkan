@@ -4,6 +4,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+
 //#include <vulkan/vulkan.h>
 #include <iostream>
 #include <stdexcept>
@@ -15,9 +17,6 @@
 #include <limits>
 #include <algorithm>
 #include <fstream>
-
-
-
 
 struct QueueFamilyIndices
 {
@@ -96,6 +95,9 @@ private:
 	VkPipelineLayout m_pipelineLayout;
 	VkPipeline m_graphicsPipeline;
 
+	VkBuffer m_vertexBuffer;
+	VkDeviceMemory m_vertexBufferMemory;
+
 	std::vector<VkFramebuffer> m_swapChainFramebuffers;
 
 	VkCommandPool m_commandPool;
@@ -132,6 +134,9 @@ private:
 	void createCommandPool();
 	void createCommandBuffer();
 	VkShaderModule createShaderModule(const std::vector<char>& code);
+
+	void createVertexBuffer();
+	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 	void createImageViews();
 	void createSwapChain();
