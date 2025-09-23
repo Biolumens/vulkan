@@ -98,6 +98,9 @@ private:
 	VkBuffer m_vertexBuffer;
 	VkDeviceMemory m_vertexBufferMemory;
 
+	VkBuffer m_indexBuffer;
+	VkDeviceMemory m_indexBufferMemory;
+
 	std::vector<VkFramebuffer> m_swapChainFramebuffers;
 
 	VkCommandPool m_commandPool;
@@ -135,7 +138,11 @@ private:
 	void createCommandBuffer();
 	VkShaderModule createShaderModule(const std::vector<char>& code);
 
+	void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory);
 	void createVertexBuffer();
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
+	void createIndexBuffer();
+
 	uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
 	void createImageViews();

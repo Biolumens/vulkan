@@ -22,6 +22,7 @@ void Application::initVulkan()
 	createFramebuffers();
 	createCommandPool();
 	createVertexBuffer();
+	createIndexBuffer();
 	createCommandBuffer();
 	createSyncObjects();
 }
